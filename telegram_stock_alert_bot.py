@@ -280,7 +280,7 @@ def main():
     sched.start()
 
     log.info("Bot starting …")
-    app.run_polling(allowed_updates=constants.Update.ALL_TYPES)
+    app.run_polling()
 
 
 if __name__ == "__main__":
