@@ -1,0 +1,5 @@
+python-telegram-bot>=21.0
+apscheduler
+aiohttp
+requests
+python-dotenv
