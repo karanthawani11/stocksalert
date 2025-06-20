@@ -30,8 +30,8 @@ print(json.dumps({k: v for k, v in os.environ.items()
 print("ENV-DUMP-END", file=sys.stderr, flush=True)
 # ─── END DEBUG BLOCK ───
 
-BOT_TOKEN      = os.getenv("7932346974:AAEG4V-RwQVbzXWQIwwyz7S-EedVdSMtNzY")           # Telegram Bot token
-NEWSAPI_KEY    = os.getenv("70815b5109c14f1386a363733082b65e")        # optional
+BOT_TOKEN   = os.getenv("TG_TOKEN")           # Telegram Bot token
+NEWSAPI_KEY = os.getenv("NEWSAPI_KEY")        # optional
 POLL_INTERVAL  = int(os.getenv("POLL_INTERVAL", 15))   # ≥5 s recommended
 
 if not BOT_TOKEN:
