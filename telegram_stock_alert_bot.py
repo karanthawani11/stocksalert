@@ -271,14 +271,20 @@ def main():
     sched = BackgroundScheduler()
     sched.add_job(
         lambda: asyncio.run(dispatch_announcements(app)),
-        "interval",
+        trigger='date',
+        run_date=datetime.now()
+    )
+
+    # 2️⃣ regular polling job
+    sched.add_job(
+        lambda: asyncio.run(dispatch_announcements(app)),
+        'interval',
         seconds=POLL_INTERVAL,
         id="poller",
         max_instances=1,
         coalesce=True
     )
     sched.start()
-    asyncio.run(dispatch_announcements(app))
     
     log.info("Bot starting …")
     app.run_polling()
