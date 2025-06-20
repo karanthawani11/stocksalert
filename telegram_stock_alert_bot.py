@@ -31,8 +31,8 @@ python-dotenv
 Environment variables (via .env or shell)
 -----------------------------------------
 ```
-TG_TOKEN="<your Telegram bot token>"
-NEWSAPI_KEY="<optional NewsAPI key>"
+TG_TOKEN="7932346974:AAEG4V-RwQVbzXWQIwwyz7S-EedVdSMtNzY"
+NEWSAPI_KEY="70815b5109c14f1386a363733082b65e"
 POLL_INTERVAL="15"           # seconds between fetch cycles (int)
 ```
 
