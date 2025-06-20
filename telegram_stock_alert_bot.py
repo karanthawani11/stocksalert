@@ -278,7 +278,8 @@ def main():
         coalesce=True
     )
     sched.start()
-
+    asyncio.run(dispatch_announcements(app))
+    
     log.info("Bot starting …")
     app.run_polling()
 
