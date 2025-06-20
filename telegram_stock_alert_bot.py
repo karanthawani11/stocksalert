@@ -5,55 +5,56 @@ Pushes NSE/BSE corporate filings (+ optional NewsAPI headlines)
 to Telegram users who subscribe with /watch <SYMBOL>.
 """
 
-# ───────────────────────────── imports ───────────────────────────── #
-
-import os, html, asyncio, logging, sqlite3
+import os
+import html
+import asyncio
+import logging
+import sqlite3
 from typing import List, Dict, Any, Optional
 
 import aiohttp
 from dotenv import load_dotenv
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.schedulers.background import BackgroundScheduler
 from telegram import Update, constants
-from telegram.ext import (
-    ApplicationBuilder, CommandHandler, ContextTypes
-)
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# ────────────── ENV / CONFIG (all via Railway Variables) ─────────── #
+# ────────────────────────────── ENV / CONFIG ────────────────────────────── #
 
-load_dotenv()                                    # reads .env when running locally
-# ─── DEBUG BLOCK (remove after test) ───
-import sys, json
-print("ENV-DUMP-START", file=sys.stderr)
-print(json.dumps({k: v for k, v in os.environ.items()
-                  if k.startswith("TG") or k.startswith("RAIL")}, indent=2),
-      file=sys.stderr)
-print("ENV-DUMP-END", file=sys.stderr, flush=True)
-# ─── END DEBUG BLOCK ───
+load_dotenv()  # reads .env when running locally
 
-BOT_TOKEN   = os.getenv("TG_TOKEN")           # Telegram Bot token
-NEWSAPI_KEY = os.getenv("NEWSAPI_KEY")        # optional
-POLL_INTERVAL  = int(os.getenv("POLL_INTERVAL", 15))   # ≥5 s recommended
+BOT_TOKEN     = os.getenv("TG_TOKEN")
+NEWSAPI_KEY   = os.getenv("NEWSAPI_KEY")
+POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", 15))  # ≥5 seconds
 
 if not BOT_TOKEN:
     raise RuntimeError("⚠️  TG_TOKEN environment variable not set!")
 
+# SQLite setup
 DB = sqlite3.connect("watchlist.db", check_same_thread=False)
-DB.execute("CREATE TABLE IF NOT EXISTS watch (user INTEGER, symbol TEXT)")
-DB.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_user_sym ON watch(user, symbol)")
+DB.execute("""
+    CREATE TABLE IF NOT EXISTS watch (
+        user   INTEGER,
+        symbol TEXT,
+        UNIQUE(user, symbol)
+    )
+""")
+DB.commit()
 
+# Logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-7s | %(name)s: %(message)s"
 )
 log = logging.getLogger("alert-bot")
 
-# ─────────────────────────── utilities ──────────────────────────── #
+
+# ──────────────────────────── UTILITIES ───────────────────────────── #
 
 SESSION: Optional[aiohttp.ClientSession] = None
-LAST_IDS: Dict[str, Any] = {}     # per-source dedup
+LAST_IDS: Dict[str, Any] = {}  # for dedup per source
+
 
 async def get_json(url: str, headers: dict | None = None) -> Any:
-    """GET URL → JSON with small retry & 10 s timeout."""
     global SESSION
     headers = headers or {}
     if SESSION is None:
@@ -69,7 +70,8 @@ async def get_json(url: str, headers: dict | None = None) -> Any:
                 return None
     return None
 
-# ─────────────────────────── fetchers ───────────────────────────── #
+
+# ──────────────────────────── FETCHERS ───────────────────────────── #
 
 async def fetch_nse() -> List[dict]:
     url = "https://www.nseindia.com/api/corporate-announcements?index=equities"
@@ -92,6 +94,7 @@ async def fetch_nse() -> List[dict]:
         LAST_IDS["nse"] = ann[0]["id"]
     return fresh
 
+
 async def fetch_bse() -> List[dict]:
     url = "https://api.bseindia.com/BseIndiaAPI/api/AnnGetData/w?strCat=-1"
     ann = await get_json(url)
@@ -110,6 +113,7 @@ async def fetch_bse() -> List[dict]:
     if ann:
         LAST_IDS["bse"] = ann[0]["SCRIP_CD"] + ann[0]["NEWS_DT"]
     return fresh
+
 
 async def fetch_newsapi() -> List[dict]:
     if not NEWSAPI_KEY:
@@ -133,7 +137,7 @@ async def fetch_newsapi() -> List[dict]:
         if uid == LAST_IDS.get("newsapi"):
             break
         fresh.append({
-            "symbol": "",           # match later by keyword
+            "symbol": "",  # will match by keyword
             "headline": art["title"],
             "link": art["url"]
         })
@@ -141,10 +145,11 @@ async def fetch_newsapi() -> List[dict]:
         LAST_IDS["newsapi"] = data["articles"][0]["url"]
     return fresh
 
-# ─────────────────────── alert dispatcher ──────────────────────── #
+
+# ─────────────────────────── DISPATCHER ───────────────────────────── #
 
 async def dispatch_announcements(app):
-    combined: List[dict] = []
+    combined = []
     combined += await fetch_nse()
     combined += await fetch_bse()
     combined += await fetch_newsapi()
@@ -159,12 +164,13 @@ async def dispatch_announcements(app):
 
     for item in combined:
         sym = item["symbol"].upper()
-        target_uids = watch_map.get(sym, [])
-        if not target_uids and sym == "":
+        targets = watch_map.get(sym, [])
+        if not targets and not sym:
+            # match NewsAPI by keyword
             for wsym, uids in watch_map.items():
                 if wsym in item["headline"].upper():
-                    target_uids.extend(uids)
-        if not target_uids:
+                    targets.extend(uids)
+        if not targets:
             continue
 
         text = (
@@ -172,24 +178,27 @@ async def dispatch_announcements(app):
             f"{html.escape(item['headline'])}\n"
             f"<a href='{item['link']}'>Open</a>"
         )
-        for uid in set(target_uids):
+        for uid in set(targets):
             try:
                 await app.bot.send_message(
-                    uid, text,
+                    uid,
+                    text,
                     parse_mode=constants.ParseMode.HTML,
                     disable_web_page_preview=False
                 )
             except Exception as e:
-                log.warning("Send failed to %s : %s", uid, e)
+                log.warning("Send failed to %s: %s", uid, e)
 
-# ─────────────────────── command handlers ──────────────────────── #
+
+# ───────────────────────── COMMAND HANDLERS ───────────────────────── #
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "नमस्ते! `/watch TCS` लिखकर स्टॉक ट्रैक करें.\n"
-        "`/help` से सभी कमांड देखें.",
+        "नमस्ते! `/watch TCS` लिखकर स्टॉक ट्रैक करें।\n"
+        "`/help` से सभी कमांड देखें।",
         parse_mode=constants.ParseMode.MARKDOWN
     )
+
 
 async def help_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -200,72 +209,57 @@ async def help_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         parse_mode=constants.ParseMode.MARKDOWN
     )
 
+
 async def cmd_watch(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not ctx.args:
-        await update.message.reply_text("उदाहरण: /watch RELIANCE")
-        return
+        return await update.message.reply_text("उदाहरण: /watch RELIANCE")
     sym = ctx.args[0].upper()
-    DB.execute("INSERT OR IGNORE INTO watch VALUES (?,?)",
-               (update.effective_user.id, sym))
+    DB.execute("INSERT OR IGNORE INTO watch(user,symbol) VALUES(?,?)", (update.effective_user.id, sym))
     DB.commit()
     await update.message.reply_text(f"📈 {sym} added.")
 
+
 async def cmd_unwatch(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not ctx.args:
-        await update.message.reply_text("उदाहरण: /unwatch RELIANCE")
-        return
+        return await update.message.reply_text("उदाहरण: /unwatch RELIANCE")
     sym = ctx.args[0].upper()
-    DB.execute("DELETE FROM watch WHERE user=? AND symbol=?",
-               (update.effective_user.id, sym))
+    DB.execute("DELETE FROM watch WHERE user=? AND symbol=?", (update.effective_user.id, sym))
     DB.commit()
     await update.message.reply_text(f"❌ {sym} removed.")
 
+
 async def cmd_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    rows = DB.execute("SELECT symbol FROM watch WHERE user=?",
-                      (update.effective_user.id,)).fetchall()
+    rows = DB.execute("SELECT symbol FROM watch WHERE user=?", (update.effective_user.id,)).fetchall()
     if not rows:
-        await update.message.reply_text("आपकी वॉचलिस्ट खाली है.")
-    else:
-        syms = ", ".join(r[0] for r in rows)
-        await update.message.reply_text(f"👀 {syms}")
+        return await update.message.reply_text("आपकी वॉचलिस्ट खाली है।")
+    syms = ", ".join(r[0] for r in rows)
+    await update.message.reply_text(f"👀 {syms}")
+
 
 async def cmd_latency(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     global POLL_INTERVAL
     if not ctx.args:
-        await update.message.reply_text(f"Current interval: {POLL_INTERVAL}s")
-        return
+        return await update.message.reply_text(f"Current interval: {POLL_INTERVAL}s")
     try:
         new = int(ctx.args[0])
         if new < 5:
-            await update.message.reply_text("Minimum 5 seconds allowed.")
-            return
-
+            return await update.message.reply_text("Minimum 5 seconds allowed.")
         POLL_INTERVAL = new
-        scheduler = ctx.application.job_queue.scheduler
-        job = scheduler.get_job("poller")
-        if job:
-            job.reschedule(trigger='interval', seconds=POLL_INTERVAL)
-
-        await update.message.reply_text(
-            f"⏱️ Poll interval set to {POLL_INTERVAL}s."
-        )
+        await update.message.reply_text(f"⏱️ Poll interval set to {POLL_INTERVAL}s.")
     except ValueError:
         await update.message.reply_text("Usage: /latency 10")
 
-# ─────────────────────────────  main  ───────────────────────────── #
 
-# ─────────  MAIN  (अब synchronous) ───────── #
+# ───────────────────────────────── MAIN ────────────────────────────── #
 
 def main():
-    app = (
-        ApplicationBuilder()
-        .token(BOT_TOKEN)
-        .read_timeout(20)
-        .write_timeout(20)
+    app = ApplicationBuilder() \
+        .token(BOT_TOKEN) \
+        .read_timeout(20) \
+        .write_timeout(20) \
         .build()
-    )
 
-    # commands
+    # register command handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("watch", cmd_watch))
@@ -273,14 +267,21 @@ def main():
     app.add_handler(CommandHandler("list", cmd_list))
     app.add_handler(CommandHandler("latency", cmd_latency))
 
-    # scheduler
-    sched = AsyncIOScheduler()
-    sched.add_job(lambda: dispatch_announcements(app),
-                  "interval", seconds=POLL_INTERVAL, id="poller")
+    # start background scheduler
+    sched = BackgroundScheduler()
+    sched.add_job(
+        lambda: asyncio.run(dispatch_announcements(app)),
+        "interval",
+        seconds=POLL_INTERVAL,
+        id="poller",
+        max_instances=1,
+        coalesce=True
+    )
     sched.start()
 
     log.info("Bot starting …")
     app.run_polling(allowed_updates=constants.Update.ALL_TYPES)
+
 
 if __name__ == "__main__":
     main()
