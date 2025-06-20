@@ -254,7 +254,9 @@ async def cmd_latency(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 # ─────────────────────────────  main  ───────────────────────────── #
 
-async def main():
+# ─────────  MAIN  (अब synchronous) ───────── #
+
+def main():
     app = (
         ApplicationBuilder()
         .token(BOT_TOKEN)
@@ -263,7 +265,7 @@ async def main():
         .build()
     )
 
-    # register commands
+    # commands
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("watch", cmd_watch))
@@ -271,19 +273,14 @@ async def main():
     app.add_handler(CommandHandler("list", cmd_list))
     app.add_handler(CommandHandler("latency", cmd_latency))
 
-    # scheduler job
+    # scheduler
     sched = AsyncIOScheduler()
-    sched.add_job(
-        lambda: dispatch_announcements(app),
-        "interval", seconds=POLL_INTERVAL, id="poller"
-    )
+    sched.add_job(lambda: dispatch_announcements(app),
+                  "interval", seconds=POLL_INTERVAL, id="poller")
     sched.start()
 
     log.info("Bot starting …")
-    await app.run_polling()
+    app.run_polling(allowed_updates=constants.Update.ALL_TYPES)
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        log.info("Bot stopped.")
+    main()
