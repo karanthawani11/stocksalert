@@ -270,20 +270,17 @@ def main():
 
     # start background scheduler
     sched = BackgroundScheduler()
-    sched.add_job(
-        lambda: asyncio.run(dispatch_announcements(app)),
-        trigger='date',
-        run_date=datetime.now()
-    )
-
-    # 2️⃣ regular polling job
+    # start background scheduler with one interval job,
+    # but fire immediately once too
+    sched = BackgroundScheduler()
     sched.add_job(
         lambda: asyncio.run(dispatch_announcements(app)),
         'interval',
         seconds=POLL_INTERVAL,
         id="poller",
         max_instances=1,
-        coalesce=True
+        coalesce=True,
+        next_run_time=datetime.now()      # ← fire immediately
     )
     sched.start()
     
