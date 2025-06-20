@@ -25,8 +25,8 @@ from telegram.ext import (
 # ────────────────────────────── ENV / CONFIG ────────────────────────────── #
 
 load_dotenv()                                  # reads .env if present locally
-BOT_TOKEN      = os.getenv("TG_TOKEN")
-NEWSAPI_KEY    = os.getenv("NEWSAPI_KEY")
+BOT_TOKEN      = os.getenv("7932346974:AAEG4V-RwQVbzXWQIwwyz7S-EedVdSMtNzY")
+NEWSAPI_KEY    = os.getenv("70815b5109c14f1386a363733082b65e")
 POLL_INTERVAL  = int(os.getenv("POLL_INTERVAL", 15))  # default 15 s (≥5)
 
 if not BOT_TOKEN:
