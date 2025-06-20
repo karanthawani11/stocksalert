@@ -21,6 +21,15 @@ from telegram.ext import (
 # ────────────── ENV / CONFIG (all via Railway Variables) ─────────── #
 
 load_dotenv()                                    # reads .env when running locally
+# ─── DEBUG BLOCK (remove after test) ───
+import sys, json
+print("ENV-DUMP-START", file=sys.stderr)
+print(json.dumps({k: v for k, v in os.environ.items()
+                  if k.startswith("TG") or k.startswith("RAIL")}, indent=2),
+      file=sys.stderr)
+print("ENV-DUMP-END", file=sys.stderr, flush=True)
+# ─── END DEBUG BLOCK ───
+
 BOT_TOKEN      = os.getenv("7932346974:AAEG4V-RwQVbzXWQIwwyz7S-EedVdSMtNzY")           # Telegram Bot token
 NEWSAPI_KEY    = os.getenv("70815b5109c14f1386a363733082b65e")        # optional
 POLL_INTERVAL  = int(os.getenv("POLL_INTERVAL", 15))   # ≥5 s recommended
