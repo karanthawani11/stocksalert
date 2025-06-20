@@ -238,7 +238,7 @@ async def cmd_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"👀 {syms}")
 
 async def cmd_latency(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    global POLL_INTERVAL            # ← अब सबसे ऊपर, इसलिए no SyntaxError
+    global POLL_INTERVAL
     if not ctx.args:
         await update.message.reply_text(f"Current interval: {POLL_INTERVAL}s")
         return
@@ -247,12 +247,19 @@ async def cmd_latency(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if new < 5:
             await update.message.reply_text("Minimum 5 seconds allowed.")
             return
+
+        # 1️⃣ variable बदलें
         POLL_INTERVAL = new
+
+        # 2️⃣ scheduler से existing जॉब पकड़ें और reschedule करें
+        job = ctx.application.job_queue.get_jobs_by_name("poller")[0]
+        job.interval = POLL_INTERVAL
         await update.message.reply_text(
             f"⏱️ Poll interval set to {POLL_INTERVAL}s."
         )
     except ValueError:
         await update.message.reply_text("Usage: /latency 10")
+
 
 
 # ──────────────────────────────  MAIN  ────────────────────────────── #
