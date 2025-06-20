@@ -268,10 +268,6 @@ def main():
     app.add_handler(CommandHandler("list", cmd_list))
     app.add_handler(CommandHandler("latency", cmd_latency))
 
-    # start background scheduler
-    sched = BackgroundScheduler()
-    # start background scheduler with one interval job,
-    # but fire immediately once too
     sched = BackgroundScheduler()
     sched.add_job(
         lambda: asyncio.run(dispatch_announcements(app)),
